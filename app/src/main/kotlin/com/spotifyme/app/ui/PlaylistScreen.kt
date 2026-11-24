@@ -31,8 +31,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,22 +44,31 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.spotifyme.core.model.CandidateTrack
+import com.spotifyme.core.model.CustomMood
+import com.spotifyme.core.model.MoodChoice
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlaylistScreen(model: PlaylistViewModel, onBack: () -> Unit) {
+fun PlaylistScreen(model: PlaylistViewModel, onBack: () -> Unit, onEdit: (CustomMood) -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     val busy = state.isLoading || state.isSaving
+    val choice = state.choice
+
+    // The custom mood was deleted (e.g. from its editor): nothing left to show.
+    LaunchedEffect(choice) { if (choice == null) onBack() }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(model.mood.title) },
+                title = { Text(choice?.title.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
                 actions = {
+                    if (choice is MoodChoice.Custom) {
+                        TextButton(onClick = { onEdit(choice.mood) }, enabled = !busy) { Text("Edit") }
+                    }
                     IconButton(onClick = { model.load(forceRefresh = true) }, enabled = !busy) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                     }

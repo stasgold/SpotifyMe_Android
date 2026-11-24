@@ -4,7 +4,9 @@ import com.spotifyme.core.api.BpmLookup
 import com.spotifyme.core.api.ReccoBeatsApi
 import com.spotifyme.core.api.SpotifyApi
 import com.spotifyme.core.model.CandidateTrack
+import com.spotifyme.core.model.CustomMood
 import com.spotifyme.core.model.Mood
+import com.spotifyme.core.model.MoodChoice
 import com.spotifyme.core.model.Track
 import com.spotifyme.core.model.TrackOrigin
 import com.spotifyme.core.model.AudioFeatures
@@ -45,30 +47,56 @@ class PlaylistService(
         mood: Mood,
         forceRefresh: Boolean = false,
         progress: (Progress) -> Unit = {},
+    ): List<CandidateTrack> = generate(MoodChoice.BuiltIn(mood), forceRefresh, progress)
+
+    suspend fun generate(
+        choice: MoodChoice,
+        forceRefresh: Boolean = false,
+        progress: (Progress) -> Unit = {},
     ): List<CandidateTrack> = mutex.withLock {
         ensurePool(forceRefresh, progress)
 
-        if (mood.cadence != null) fillMissingTempos(progress)
+        val needsTempo: Boolean
+        val wantsMore: Boolean
+        val minimum: Int
+        when (choice) {
+            is MoodChoice.BuiltIn -> {
+                needsTempo = choice.mood.cadence != null
+                wantsMore = choice.mood != Mood.SURPRISE_ME
+                minimum = minimumTracks
+            }
+            is MoodChoice.Custom -> {
+                needsTempo = choice.mood.needsTempo
+                // Recommendations would be filtered out if new music isn't an allowed source.
+                wantsMore = choice.mood.addRecommendationsWhenShort && CustomMood.Source.NEW_MUSIC in choice.mood.sources
+                minimum = minOf(minimumTracks, maxOf(1, choice.mood.targetCount))
+            }
+        }
+
+        if (needsTempo) fillMissingTempos(progress)
 
         progress(Progress.ChoosingTracks)
-        var result = engine.playlist(mood, pool.values.toList())
+        var result = engine.playlist(choice, pool.values.toList())
 
-        if (result.size < minimumTracks && mood != Mood.SURPRISE_ME) {
+        if (result.size < minimum && wantsMore) {
             progress(Progress.FindingMoreTracks)
-            expandPool(mood, result.map { it.id }, progress)
+            expandPool(choice, result.map { it.id }, progress)
             progress(Progress.ChoosingTracks)
-            result = engine.playlist(mood, pool.values.toList())
+            result = engine.playlist(choice, pool.values.toList())
         }
         cache.save()
         result
     }
 
+    suspend fun save(tracks: List<CandidateTrack>, mood: Mood, existingPlaylistId: String?): SpotifyApi.CreatedPlaylist =
+        save(tracks, MoodChoice.BuiltIn(mood), existingPlaylistId)
+
     /** Writes the tracks to Spotify. Reuses [existingPlaylistId] if it still exists, else creates a new playlist. */
-    suspend fun save(tracks: List<CandidateTrack>, mood: Mood, existingPlaylistId: String?): SpotifyApi.CreatedPlaylist {
+    suspend fun save(tracks: List<CandidateTrack>, choice: MoodChoice, existingPlaylistId: String?): SpotifyApi.CreatedPlaylist {
         val playlist = if (existingPlaylistId != null && spotify.playlistExists(existingPlaylistId)) {
             SpotifyApi.CreatedPlaylist(existingPlaylistId, "https://open.spotify.com/playlist/$existingPlaylistId")
         } else {
-            spotify.createPlaylist(mood.playlistName, mood.playlistDescription)
+            spotify.createPlaylist(choice.playlistName, choice.playlistDescription)
         }
         spotify.replacePlaylistItems(playlist.id, tracks.map { it.track.uri })
         return playlist
@@ -181,7 +209,7 @@ class PlaylistService(
 
     // region Expansion
 
-    private suspend fun expandPool(mood: Mood, seeds: List<String>, progress: (Progress) -> Unit) {
+    private suspend fun expandPool(choice: MoodChoice, seeds: List<String>, progress: (Progress) -> Unit) {
         val fallbackSeeds = pool.values
             .filter { TrackOrigin.TOP_SHORT_TERM in it.origins || TrackOrigin.TOP_MEDIUM_TERM in it.origins }
             .map { it.id }
@@ -189,13 +217,22 @@ class PlaylistService(
         if (seedIds.isEmpty()) return
 
         data class Target(val tempo: Double?, val energy: Double?, val valence: Double?)
-        val target = when (mood) {
-            Mood.SLOW_DOWN -> Target(80.0, 0.3, null)
-            Mood.SPEED_UP -> Target(128.0, 0.8, null)
-            Mood.RUNNING_180 -> Target(180.0, 0.8, null)
-            Mood.RUNNING_170 -> Target(170.0, 0.8, null)
-            Mood.FEELING_GOOD -> Target(118.0, 0.7, 0.85)
-            Mood.SURPRISE_ME -> Target(null, null, null)
+        val target = when (choice) {
+            is MoodChoice.BuiltIn -> when (choice.mood) {
+                Mood.SLOW_DOWN -> Target(80.0, 0.3, null)
+                Mood.SPEED_UP -> Target(128.0, 0.8, null)
+                Mood.RUNNING_180 -> Target(180.0, 0.8, null)
+                Mood.RUNNING_170 -> Target(170.0, 0.8, null)
+                Mood.FEELING_GOOD -> Target(118.0, 0.7, 0.85)
+                Mood.SURPRISE_ME -> Target(null, null, null)
+            }
+            is MoodChoice.Custom -> with(choice.mood) {
+                Target(
+                    tempo.midpoint.takeIf { tempo.isEnabled },
+                    energy.midpoint.takeIf { energy.isEnabled },
+                    valence.midpoint.takeIf { valence.isEnabled },
+                )
+            }
         }
         val recs = optional {
             recco.recommendations(seedIds, size = 100, tempo = target.tempo, energy = target.energy, valence = target.valence)

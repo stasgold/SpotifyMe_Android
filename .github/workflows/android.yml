@@ -17,9 +17,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      # Only APKs that can actually sign in to Spotify are published.
-      HAS_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -59,14 +56,11 @@ jobs:
           name: SpotifyMe-android-${{ github.run_number }}
           path: app/build/outputs/apk/**/*.apk
 
-      - name: Warn when the Client ID secret is missing
-        if: env.HAS_CLIENT_ID != 'true'
-        run: echo "::warning::SPOTIFY_CLIENT_ID secret is not set, so the APK cannot sign in and no release is published."
-
       # Every push to main becomes the latest GitHub Release, so
       # https://github.com/<owner>/<repo>/releases/latest/download/SpotifyMe.apk always gets the newest build.
+      # The SPOTIFY_CLIENT_ID secret is optional: without it, the app asks for a Client ID on first launch.
       - name: Publish GitHub Release (sideload APK)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.HAS_CLIENT_ID == 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
@@ -77,6 +71,7 @@ jobs:
           body: |
             **Install:** open this page on your Android phone, tap `SpotifyMe.apk`, then open the download.
             Allow "Install unknown apps" for your browser when asked. Newer builds install over older ones.
+            On first launch, paste your Spotify app's Client ID (the app shows how to get one).
 
             Built from ${{ github.sha }}.
 

@@ -29,7 +29,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AboutScreen(container: AppContainer, onBack: () -> Unit) {
+fun AboutScreen(container: AppContainer, onBack: () -> Unit, onSetup: () -> Unit) {
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -51,6 +51,19 @@ fun AboutScreen(container: AppContainer, onBack: () -> Unit) {
             // Required by GetSongBPM's API terms: a visible link back to their site.
             LinkRow("BPM data by GetSongBPM.com", "https://getsongbpm.com") { uriHandler.openUri(it) }
             LinkRow("BPM data: Deezer", "https://www.deezer.com") { uriHandler.openUri(it) }
+
+            SectionHeader("Spotify app")
+            ListItem(
+                headlineContent = { Text("Client ID") },
+                trailingContent = {
+                    val id = container.spotifyClientId
+                    Text(if (id.length > 8) "…" + id.takeLast(6) else id, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                },
+            )
+            ListItem(
+                headlineContent = { Text("Change Client ID or API keys", color = MaterialTheme.colorScheme.primary) },
+                modifier = Modifier.clickable(onClick = onSetup),
+            )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 

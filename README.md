@@ -13,11 +13,22 @@ The Android port of [SpotifyMe for iOS](https://github.com/stasgold/SpotifyMe). 
 
 Each playlist has about 30 tracks, with at most 2 per artist. For a running mood, if there aren't enough tracks at ±5 BPM, the window widens to ±8 BPM. If a mood still has fewer than 20 tracks, the app adds recommendations aimed at that mood's tempo and energy. Saving a mood again **updates the same playlist** rather than creating a duplicate.
 
+### Custom moods
+
+Tap **New mood** at the end of the grid to make your own mood and set every rule:
+- **Name and look**: name, icon and color.
+- **Tempo**: a BPM range, optionally counting half-time tempo (e.g. 90 BPM for 180), as runners do.
+- **Sound**: ranges for energy, positivity, danceability and acousticness. Only the filters you turn on are applied, and tracks closest to the middle of each range rank highest.
+- **Pick tracks from**: your top tracks, recently played, Liked Songs, more from your top artists, new recommendations.
+- **Playlist**: number of tracks, max per artist, order (best match, shuffled, energy or tempo rising/falling, gentle start and finish), avoiding the same artist back to back, and adding recommendations when too few tracks match.
+
+Long-press a custom mood to edit or delete it, or tap **Edit** on its playlist screen.
+
 The mood rules, data sources and behavior are the same as the iOS app; only the UI layer is Android-specific.
 
 ## 📲 Install on your phone (sideload)
 
-**[Download SpotifyMe.apk (latest build)](https://github.com/stasgold/SpotifyMe_Android/releases/latest/download/SpotifyMe.apk)**: open this link on your Android phone, open the downloaded file, and allow "Install unknown apps" for your browser when asked. Newer builds install over older ones. Your Spotify account must be added under **User Management** in the Spotify dashboard (see [Setup](#setup)).
+**[Download SpotifyMe.apk (latest build)](https://github.com/stasgold/SpotifyMe_Android/releases/latest/download/SpotifyMe.apk)**: open this link on your Android phone, open the downloaded file, and allow "Install unknown apps" for your browser when asked. Newer builds install over older ones. On first launch the app asks for a Spotify **Client ID** and shows how to get one (see [Setup](#setup)).
 
 ## How it works
 
@@ -36,13 +47,13 @@ Spotify no longer gives new apps tempo/mood data (audio features) or recommendat
 
 ```
 core/                              Kotlin/JVM module with all non-UI logic (port of SpotifyMeCore)
-  model/      Track, AudioFeatures, Mood
+  model/      Track, AudioFeatures, Mood, CustomMood
   engine/     MoodEngine (mood rules), PlaylistService, FeatureCache
   api/        Spotify, ReccoBeats, GetSongBPM, Deezer clients
   src/test/   unit tests for the mood rules and the networking plumbing
 app/                               the Android app (Jetpack Compose, Android 8.0+)
   auth/       Spotify sign-in (authorization code + PKCE in a Custom Tab), Keystore-encrypted tokens
-  ui/         login, mood grid, playlist preview/save, about
+  ui/         setup, login, mood grid, mood editor, playlist preview/save, about
 ```
 
 | iOS | Android |
@@ -71,6 +82,7 @@ You need Android Studio (or the Android SDK and JDK 17+).
    app.applicationId=com.yourname.spotifyme  # optional, default com.stasgold.spotifyme
    ```
    You can use the environment variables `SPOTIFY_CLIENT_ID`, `GETSONGBPM_API_KEY` and `APP_APPLICATION_ID` instead.
+   These values are optional defaults: on first launch the app asks for a Client ID (and an optional GetSongBPM key) and stores them on the phone, so each person can use their own Spotify developer app. Change them later under **About → Change Client ID or API keys**.
 4. Open the folder in Android Studio and press **Run**, or from a terminal:
    ```sh
    ./gradlew :app:installDebug
@@ -80,11 +92,11 @@ Run the unit tests with `./gradlew test`.
 
 ## Continuous integration
 
-`.github/workflows/android.yml` runs the unit tests and builds the debug and release APKs on every push. Add a `SPOTIFY_CLIENT_ID` repository secret (and optionally `GETSONGBPM_API_KEY`) so the built APKs can sign in; without it they show a "Client ID missing" screen.
+`.github/workflows/android.yml` runs the unit tests and builds the debug and release APKs on every push. You can add a `SPOTIFY_CLIENT_ID` repository secret (and optionally `GETSONGBPM_API_KEY`) to build them in as defaults; without it, the app asks for a Client ID on first launch.
 
 To get a signed release APK, add these secrets too: `ANDROID_KEYSTORE_BASE64` (your keystore, base64-encoded), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Locally, put `storeFile`, `storePassword`, `keyAlias` and `keyPassword` in a git-ignored `keystore.properties`.
 
-When `SPOTIFY_CLIENT_ID` is set, every push to `main` also publishes the debug APK as the latest GitHub Release (`SpotifyMe.apk`), which is what the download link above points to. The APKs are attached to each workflow run under **Artifacts** too.
+Every push to `main` also publishes the debug APK as the latest GitHub Release (`SpotifyMe.apk`), which is what the download link above points to. The APKs are attached to each workflow run under **Artifacts** too.
 
 Debug builds are signed with the committed `app/debug.keystore` (standard `android` passwords, not a secret), so an APK built on any machine or in CI installs over another.
 

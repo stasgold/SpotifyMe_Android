@@ -1,9 +1,12 @@
 package com.spotifyme.core.engine
 
 import com.spotifyme.core.model.CandidateTrack
+import com.spotifyme.core.model.CustomMood
 import com.spotifyme.core.model.Mood
+import com.spotifyme.core.model.MoodChoice
 import com.spotifyme.core.model.TrackOrigin
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.random.Random
@@ -150,6 +153,71 @@ class MoodEngine(val options: Options = Options()) {
 
     // endregion
 
+    // region Custom moods
+
+    fun playlist(custom: CustomMood, pool: List<CandidateTrack>, random: Random = Random.Default): List<CandidateTrack> {
+        val engine = MoodEngine(
+            options.copy(targetCount = max(1, custom.targetCount), maxPerArtist = max(1, custom.maxPerArtist))
+        )
+        return engine.customPlaylist(custom, deduplicated(pool), random)
+    }
+
+    fun playlist(choice: MoodChoice, pool: List<CandidateTrack>, random: Random = Random.Default): List<CandidateTrack> =
+        when (choice) {
+            is MoodChoice.BuiltIn -> playlist(choice.mood, pool, random)
+            is MoodChoice.Custom -> playlist(choice.mood, pool, random)
+        }
+
+    private fun customPlaylist(custom: CustomMood, pool: List<CandidateTrack>, random: Random): List<CandidateTrack> {
+        val allowed = custom.allowedOrigins
+        val matchedTempo = mutableMapOf<String, Double>()
+        val scored = pool.mapNotNull { c ->
+            if (c.origins.none { it in allowed }) return@mapNotNull null
+            val f = c.features
+            val scores = mutableListOf<Double>()
+            if (custom.tempo.isEnabled) {
+                val tempo = f?.tempo?.takeIf { it > 0 } ?: return@mapNotNull null
+                val options = if (custom.countHalfTime) listOf(tempo, tempo * 2) else listOf(tempo)
+                val best = options.filter { custom.tempo.contains(it) }
+                    .maxByOrNull { closeness(it, custom.tempo) } ?: return@mapNotNull null
+                matchedTempo[c.id] = best
+                scores += closeness(best, custom.tempo)
+            }
+            val ranges = listOf(
+                custom.energy to f?.energy, custom.valence to f?.valence,
+                custom.danceability to f?.danceability, custom.acousticness to f?.acousticness,
+            )
+            for ((range, value) in ranges) {
+                if (!range.isEnabled) continue
+                if (value == null || !range.contains(value)) return@mapNotNull null
+                scores += closeness(value, range)
+            }
+            c to (if (scores.isEmpty()) 0.5 else scores.average())
+        }
+
+        var picked = pick(scored, random)
+        fun tempo(c: CandidateTrack) = matchedTempo[c.id] ?: c.features?.tempo ?: 0.0
+        fun energy(c: CandidateTrack) = c.features?.energy ?: 0.5
+        picked = when (custom.order) {
+            CustomMood.Order.BEST_MATCH_FIRST -> picked
+            CustomMood.Order.SHUFFLED -> picked.shuffled(random)
+            CustomMood.Order.ENERGY_RISING -> picked.sortedBy(::energy)
+            CustomMood.Order.ENERGY_FALLING -> picked.sortedByDescending(::energy)
+            CustomMood.Order.TEMPO_RISING -> picked.sortedBy(::tempo)
+            CustomMood.Order.TEMPO_FALLING -> picked.sortedByDescending(::tempo)
+            CustomMood.Order.WARM_UP_COOL_DOWN -> warmUpCoolDown(picked)
+        }
+        // Reordering by artist would break a deliberate energy/tempo progression.
+        if (custom.spreadArtists &&
+            (custom.order == CustomMood.Order.BEST_MATCH_FIRST || custom.order == CustomMood.Order.SHUFFLED)
+        ) {
+            picked = spreadArtists(picked)
+        }
+        return picked
+    }
+
+    // endregion
+
     // region Helpers
 
     /** Sort by (score + jitter), then take tracks while respecting the per-artist cap. */
@@ -172,6 +240,12 @@ class MoodEngine(val options: Options = Options()) {
     }
 
     companion object {
+        /** 1 at the middle of the range, falling to 0 at its edges. */
+        internal fun closeness(value: Double, range: CustomMood.Range): Double {
+            if (range.halfWidth <= 0) return 1.0
+            return max(0.0, 1 - abs(value - range.midpoint) / range.halfWidth)
+        }
+
         /**
          * How far a track's tempo is from the cadence, counting half-time
          * (one step per half beat, e.g. 90 BPM for 180 spm). Returns null when there is no tempo.

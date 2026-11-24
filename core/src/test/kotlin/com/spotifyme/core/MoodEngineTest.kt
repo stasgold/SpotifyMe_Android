@@ -5,13 +5,16 @@ import com.spotifyme.core.api.ReccoBeatsApi
 import com.spotifyme.core.engine.MoodEngine
 import com.spotifyme.core.model.AudioFeatures
 import com.spotifyme.core.model.CandidateTrack
+import com.spotifyme.core.model.CustomMood
 import com.spotifyme.core.model.Mood
+import com.spotifyme.core.model.MoodChoice
 import com.spotifyme.core.model.Track
 import com.spotifyme.core.model.TrackOrigin
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import kotlinx.serialization.json.Json
 import org.junit.Test
 import kotlin.random.Random
 
@@ -159,6 +162,82 @@ class MoodEngineTest {
         assertNull(ReccoBeatsApi.spotifyId("https://open.spotify.com/artist/abc"))
         assertNull(ReccoBeatsApi.spotifyId(null))
     }
+
+    // region Custom moods
+
+    private fun range(min: Double, max: Double, on: Boolean = false) = CustomMood.Range(on, min, max)
+
+    @Test
+    fun customMoodAppliesEveryEnabledRange() {
+        val mood = CustomMood(
+            tempo = range(100.0, 120.0, on = true),
+            energy = range(0.5, 0.9, on = true),
+            valence = range(0.6, 1.0, on = true),
+            danceability = range(0.0, 1.0),
+            acousticness = range(0.0, 0.3, on = true),
+        )
+        val pool = listOf(
+            track("ok", tempo = 110.0, energy = 0.7, valence = 0.8, acoustic = 0.1),
+            track("slow", tempo = 90.0, energy = 0.7, valence = 0.8, acoustic = 0.1),
+            track("sad", tempo = 110.0, energy = 0.7, valence = 0.3, acoustic = 0.1),
+            track("acoustic", tempo = 110.0, energy = 0.7, valence = 0.8, acoustic = 0.9),
+            track("noTempo", energy = 0.7, valence = 0.8, acoustic = 0.1),
+        )
+        assertEquals(listOf("ok"), engine.playlist(mood, pool, random).map { it.id })
+    }
+
+    @Test
+    fun customMoodHalfTimeAndTempoOrder() {
+        var mood = CustomMood(
+            tempo = range(170.0, 190.0, on = true), countHalfTime = true,
+            energy = range(0.0, 1.0), valence = range(0.0, 1.0),
+            danceability = range(0.0, 1.0), acousticness = range(0.0, 1.0),
+            order = CustomMood.Order.TEMPO_RISING,
+        )
+        val pool = listOf(track("a", tempo = 186.0), track("b", tempo = 88.0), track("c", tempo = 180.0), track("d", tempo = 120.0))
+        assertEquals(listOf("b", "c", "a"), engine.playlist(mood, pool, random).map { it.id })
+        mood = mood.copy(countHalfTime = false)
+        assertEquals(setOf("a", "c"), engine.playlist(mood, pool, random).map { it.id }.toSet())
+    }
+
+    @Test
+    fun customMoodSourcesCountAndArtistCap() {
+        var mood = CustomMood(
+            tempo = range(0.0, 300.0), energy = range(0.0, 1.0), valence = range(0.0, 1.0),
+            danceability = range(0.0, 1.0), acousticness = range(0.0, 1.0),
+            sources = setOf(CustomMood.Source.LIKED), targetCount = 3, maxPerArtist = 1,
+        )
+        val pool = listOf(
+            track("l1", artist = "X", energy = 0.5, origins = setOf(TrackOrigin.LIKED)),
+            track("l2", artist = "X", energy = 0.5, origins = setOf(TrackOrigin.LIKED)),
+            track("l3", artist = "Y", energy = 0.5, origins = setOf(TrackOrigin.LIKED)),
+            track("t1", artist = "Z", energy = 0.5, origins = setOf(TrackOrigin.TOP_SHORT_TERM)),
+        )
+        val ids = engine.playlist(mood, pool, random).map { it.id }
+        assertEquals(2, ids.size)
+        assertTrue("t1" !in ids)
+        mood = mood.copy(sources = setOf(CustomMood.Source.LIKED, CustomMood.Source.TOP_TRACKS))
+        assertEquals(3, engine.playlist(mood, pool, random).size)
+    }
+
+    @Test
+    fun customMoodRoundTripsThroughJson() {
+        val mood = CustomMood(name = "Evening", order = CustomMood.Order.ENERGY_FALLING, targetCount = 25)
+        val json = Json.encodeToString(CustomMood.serializer(), mood)
+        assertEquals(mood, Json.decodeFromString(CustomMood.serializer(), json))
+    }
+
+    @Test
+    fun choiceIdsMatchIos() {
+        assertEquals("running180", MoodChoice.BuiltIn(Mood.RUNNING_180).id)
+        assertEquals("custom.abc", MoodChoice.Custom(CustomMood(id = "abc")).id)
+        assertEquals("Any track from your library", CustomMood(
+            tempo = range(0.0, 1.0), energy = range(0.0, 1.0), valence = range(0.0, 1.0),
+            danceability = range(0.0, 1.0), acousticness = range(0.0, 1.0),
+        ).summary)
+    }
+
+    // endregion
 
     @Test
     fun getSongBpmNoResultShape() {
