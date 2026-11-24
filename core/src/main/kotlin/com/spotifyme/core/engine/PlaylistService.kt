@@ -23,8 +23,8 @@ class PlaylistService(
     private val bpmFallbacks: List<BpmLookup>,
     private val cache: FeatureCache,
     private val engine: MoodEngine = MoodEngine(),
-    /** Fewer than this many tracks for a mood triggers fetching recommendations. */
-    private val minimumTracks: Int = 20,
+    /** Rounds of recommendation fetching when a playlist is short of its track count. */
+    private val maxExpansionRounds: Int = 2,
     /** Cap on slow, one-by-one fallback BPM lookups per generation. */
     private val maxFallbackLookups: Int = 60,
     private val clock: () -> Long = System::currentTimeMillis,
@@ -58,18 +58,18 @@ class PlaylistService(
 
         val needsTempo: Boolean
         val wantsMore: Boolean
-        val minimum: Int
+        val target: Int
         when (choice) {
             is MoodChoice.BuiltIn -> {
                 needsTempo = choice.mood.cadence != null
-                wantsMore = choice.mood != Mood.SURPRISE_ME
-                minimum = minimumTracks
+                wantsMore = true
+                target = engine.options.targetCount
             }
             is MoodChoice.Custom -> {
                 needsTempo = choice.mood.needsTempo
                 // Recommendations would be filtered out if new music isn't an allowed source.
                 wantsMore = choice.mood.addRecommendationsWhenShort && CustomMood.Source.NEW_MUSIC in choice.mood.sources
-                minimum = minOf(minimumTracks, maxOf(1, choice.mood.targetCount))
+                target = maxOf(1, choice.mood.targetCount)
             }
         }
 
@@ -78,11 +78,18 @@ class PlaylistService(
         progress(Progress.ChoosingTracks)
         var result = engine.playlist(choice, pool.values.toList())
 
-        if (result.size < minimum && wantsMore) {
+        // Short of the full track count: fetch recommendations aimed at the mood, then top up with
+        // the closest recommended tracks so the playlist reaches its full length.
+        if (result.size < target && wantsMore) {
             progress(Progress.FindingMoreTracks)
-            expandPool(choice, result.map { it.id }, progress)
-            progress(Progress.ChoosingTracks)
-            result = engine.playlist(choice, pool.values.toList())
+            val usedSeeds = mutableSetOf<String>()
+            for (round in 1..maxExpansionRounds) {
+                if (!expandPool(choice, result.map { it.id }, usedSeeds, progress)) break
+                progress(Progress.ChoosingTracks)
+                result = engine.playlist(choice, pool.values.toList())
+                if (result.size >= target) break
+            }
+            if (result.size < target) result = engine.playlist(choice, pool.values.toList(), fill = true)
         }
         cache.save()
         result
@@ -209,36 +216,31 @@ class PlaylistService(
 
     // region Expansion
 
-    private suspend fun expandPool(choice: MoodChoice, seeds: List<String>, progress: (Progress) -> Unit) {
+    /**
+     * Fetches recommendations aimed at the mood, seeded by tracks not used as seeds before
+     * (the current picks first, then the user's top tracks). Returns false when nothing new was added.
+     */
+    private suspend fun expandPool(
+        choice: MoodChoice,
+        picks: List<String>,
+        usedSeeds: MutableSet<String>,
+        progress: (Progress) -> Unit,
+    ): Boolean {
         val fallbackSeeds = pool.values
             .filter { TrackOrigin.TOP_SHORT_TERM in it.origins || TrackOrigin.TOP_MEDIUM_TERM in it.origins }
             .map { it.id }
-        val seedIds = (seeds + fallbackSeeds).take(5)
-        if (seedIds.isEmpty()) return
+        val seedIds = (picks + fallbackSeeds).distinct().filter { it !in usedSeeds }.take(5)
+        if (seedIds.isEmpty()) return false
+        usedSeeds += seedIds
 
-        data class Target(val tempo: Double?, val energy: Double?, val valence: Double?)
-        val target = when (choice) {
-            is MoodChoice.BuiltIn -> when (choice.mood) {
-                Mood.SLOW_DOWN -> Target(80.0, 0.3, null)
-                Mood.SPEED_UP -> Target(128.0, 0.8, null)
-                Mood.RUNNING_180 -> Target(180.0, 0.8, null)
-                Mood.RUNNING_170 -> Target(170.0, 0.8, null)
-                Mood.FEELING_GOOD -> Target(118.0, 0.7, 0.85)
-                Mood.SURPRISE_ME -> Target(null, null, null)
-            }
-            is MoodChoice.Custom -> with(choice.mood) {
-                Target(
-                    tempo.midpoint.takeIf { tempo.isEnabled },
-                    energy.midpoint.takeIf { energy.isEnabled },
-                    valence.midpoint.takeIf { valence.isEnabled },
-                )
-            }
-        }
+        val target = MoodEngine.fillTarget(choice)
         val recs = optional {
             recco.recommendations(seedIds, size = 100, tempo = target.tempo, energy = target.energy, valence = target.valence)
-        } ?: return
+        } ?: return false
+        val before = pool.size
         add(recs, TrackOrigin.RECOMMENDATION)
         attachFeatures(progress)
+        return pool.size > before || recs.isNotEmpty()
     }
 
     // endregion

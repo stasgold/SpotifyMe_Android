@@ -24,20 +24,25 @@ class MoodEngine(val options: Options = Options()) {
         val jitter: Double = 0.05,
     )
 
-    fun playlist(mood: Mood, pool: List<CandidateTrack>, random: Random = Random.Default): List<CandidateTrack> {
+    /**
+     * Tracks for a built-in mood. With [fill], a playlist that comes up short of the target count is
+     * topped up with recommended tracks closest to the mood (see [topUp]).
+     */
+    fun playlist(mood: Mood, pool: List<CandidateTrack>, random: Random = Random.Default, fill: Boolean = false): List<CandidateTrack> {
         val deduped = deduplicated(pool)
+        val target = if (fill) fillTarget(MoodChoice.BuiltIn(mood)) else null
         return when (mood) {
-            Mood.SLOW_DOWN -> slowDown(deduped, random)
-            Mood.SPEED_UP -> speedUp(deduped, random)
-            Mood.RUNNING_180, Mood.RUNNING_170 -> running(mood.cadence!!, deduped, random)
-            Mood.FEELING_GOOD -> feelingGood(deduped, random)
+            Mood.SLOW_DOWN -> slowDown(deduped, random, target)
+            Mood.SPEED_UP -> speedUp(deduped, random, target)
+            Mood.RUNNING_180, Mood.RUNNING_170 -> running(mood.cadence!!, deduped, random, target)
+            Mood.FEELING_GOOD -> feelingGood(deduped, random, target)
             Mood.SURPRISE_ME -> surpriseMe(deduped, random)
         }
     }
 
     // region Slow Down
 
-    private fun slowDown(pool: List<CandidateTrack>, random: Random): List<CandidateTrack> {
+    private fun slowDown(pool: List<CandidateTrack>, random: Random, fill: FillTarget?): List<CandidateTrack> {
         val scored = pool.mapNotNull { c ->
             val f = c.features ?: return@mapNotNull null
             val energy = f.energy ?: return@mapNotNull null
@@ -48,14 +53,14 @@ class MoodEngine(val options: Options = Options()) {
             c to ((0.45 - energy) / 0.45 * 0.6 + acoustic * 0.4)
         }
         // Wind down: highest energy first, calmest last.
-        return pick(scored, random).sortedByDescending { it.features?.energy ?: 0.0 }
+        return topUp(pick(scored, random), pool, fill).sortedByDescending { it.features?.energy ?: 0.0 }
     }
 
     // endregion
 
     // region Speed Up
 
-    private fun speedUp(pool: List<CandidateTrack>, random: Random): List<CandidateTrack> {
+    private fun speedUp(pool: List<CandidateTrack>, random: Random, fill: FillTarget?): List<CandidateTrack> {
         val scored = pool.mapNotNull { c ->
             val energy = c.features?.energy ?: return@mapNotNull null
             val tempo = c.features.tempo ?: return@mapNotNull null
@@ -63,7 +68,7 @@ class MoodEngine(val options: Options = Options()) {
             c to energy
         }
         // Build: tempo and energy climb together.
-        return pick(scored, random).sortedBy { intensity(it) }
+        return topUp(pick(scored, random), pool, fill).sortedBy { intensity(it) }
     }
 
     private fun intensity(c: CandidateTrack): Double {
@@ -76,7 +81,7 @@ class MoodEngine(val options: Options = Options()) {
 
     // region Running
 
-    private fun running(cadence: Double, pool: List<CandidateTrack>, random: Random): List<CandidateTrack> {
+    private fun running(cadence: Double, pool: List<CandidateTrack>, random: Random, fill: FillTarget?): List<CandidateTrack> {
         // Start strict and widen the tempo window only if there are not enough tracks.
         var result = emptyList<CandidateTrack>()
         for (tolerance in listOf(5.0, 8.0)) {
@@ -92,14 +97,14 @@ class MoodEngine(val options: Options = Options()) {
             result = pick(scored, random)
             if (result.size >= options.targetCount) break
         }
-        return warmUpCoolDown(result)
+        return warmUpCoolDown(topUp(result, pool, fill))
     }
 
     // endregion
 
     // region Feeling Good
 
-    private fun feelingGood(pool: List<CandidateTrack>, random: Random): List<CandidateTrack> {
+    private fun feelingGood(pool: List<CandidateTrack>, random: Random, fill: FillTarget?): List<CandidateTrack> {
         val scored = pool.mapNotNull { c ->
             val f = c.features ?: return@mapNotNull null
             val valence = f.valence ?: return@mapNotNull null
@@ -108,7 +113,7 @@ class MoodEngine(val options: Options = Options()) {
             if (valence < 0.65 || energy !in 0.5..0.85 || dance < 0.6) return@mapNotNull null
             c to (valence * 0.6 + dance * 0.4)
         }
-        return spreadArtists(pick(scored, random))
+        return spreadArtists(topUp(pick(scored, random), pool, fill))
     }
 
     // endregion
@@ -155,20 +160,23 @@ class MoodEngine(val options: Options = Options()) {
 
     // region Custom moods
 
-    fun playlist(custom: CustomMood, pool: List<CandidateTrack>, random: Random = Random.Default): List<CandidateTrack> {
+    /** Like the built-in version; [fill] applies only when the mood allows new recommendations as a source. */
+    fun playlist(custom: CustomMood, pool: List<CandidateTrack>, random: Random = Random.Default, fill: Boolean = false): List<CandidateTrack> {
         val engine = MoodEngine(
             options.copy(targetCount = max(1, custom.targetCount), maxPerArtist = max(1, custom.maxPerArtist))
         )
-        return engine.customPlaylist(custom, deduplicated(pool), random)
+        val canFill = fill && CustomMood.Source.NEW_MUSIC in custom.sources
+        val target = if (canFill) fillTarget(MoodChoice.Custom(custom)) else null
+        return engine.customPlaylist(custom, deduplicated(pool), random, target)
     }
 
-    fun playlist(choice: MoodChoice, pool: List<CandidateTrack>, random: Random = Random.Default): List<CandidateTrack> =
+    fun playlist(choice: MoodChoice, pool: List<CandidateTrack>, random: Random = Random.Default, fill: Boolean = false): List<CandidateTrack> =
         when (choice) {
-            is MoodChoice.BuiltIn -> playlist(choice.mood, pool, random)
-            is MoodChoice.Custom -> playlist(choice.mood, pool, random)
+            is MoodChoice.BuiltIn -> playlist(choice.mood, pool, random, fill)
+            is MoodChoice.Custom -> playlist(choice.mood, pool, random, fill)
         }
 
-    private fun customPlaylist(custom: CustomMood, pool: List<CandidateTrack>, random: Random): List<CandidateTrack> {
+    private fun customPlaylist(custom: CustomMood, pool: List<CandidateTrack>, random: Random, fill: FillTarget?): List<CandidateTrack> {
         val allowed = custom.allowedOrigins
         val matchedTempo = mutableMapOf<String, Double>()
         val scored = pool.mapNotNull { c ->
@@ -195,7 +203,7 @@ class MoodEngine(val options: Options = Options()) {
             c to (if (scores.isEmpty()) 0.5 else scores.average())
         }
 
-        var picked = pick(scored, random)
+        var picked = topUp(pick(scored, random), pool, fill)
         fun tempo(c: CandidateTrack) = matchedTempo[c.id] ?: c.features?.tempo ?: 0.0
         fun energy(c: CandidateTrack) = c.features?.energy ?: 0.5
         picked = when (custom.order) {
@@ -214,6 +222,42 @@ class MoodEngine(val options: Options = Options()) {
             picked = spreadArtists(picked)
         }
         return picked
+    }
+
+    // endregion
+
+    // region Filling short playlists
+
+    /** What a mood is aiming for, used to steer recommendations and to rank fill-up tracks. */
+    data class FillTarget(
+        val tempo: Double? = null,
+        val energy: Double? = null,
+        val valence: Double? = null,
+        /** Count half the tempo as a match too (running cadence). */
+        val halfTime: Boolean = false,
+    )
+
+    /**
+     * When [picked] is short of the target count, adds recommended tracks (not already picked) that
+     * are closest to [fill], keeping the per-artist cap. Mood rules are relaxed for these tracks so the
+     * playlist reaches its full length; tracks without audio data rank last.
+     */
+    private fun topUp(picked: List<CandidateTrack>, pool: List<CandidateTrack>, fill: FillTarget?): List<CandidateTrack> {
+        if (fill == null || picked.size >= options.targetCount) return picked
+        val result = picked.toMutableList()
+        val used = picked.mapTo(mutableSetOf()) { it.id }
+        val counts = picked.groupingBy { it.track.artistKey }.eachCount().toMutableMap()
+        val candidates = pool
+            .filter { TrackOrigin.RECOMMENDATION in it.origins && it.id !in used }
+            .sortedBy { fillDistance(it, fill) }
+        for (c in candidates) {
+            if (result.size >= options.targetCount) break
+            val key = c.track.artistKey
+            if ((counts[key] ?: 0) >= options.maxPerArtist) continue
+            counts[key] = (counts[key] ?: 0) + 1
+            result += c
+        }
+        return result
     }
 
     // endregion
@@ -240,6 +284,39 @@ class MoodEngine(val options: Options = Options()) {
     }
 
     companion object {
+        /** The tempo/energy/valence a mood aims for (null fields mean "anything"). */
+        fun fillTarget(choice: MoodChoice): FillTarget = when (choice) {
+            is MoodChoice.BuiltIn -> when (choice.mood) {
+                Mood.SLOW_DOWN -> FillTarget(80.0, 0.3)
+                Mood.SPEED_UP -> FillTarget(128.0, 0.8)
+                Mood.RUNNING_180 -> FillTarget(180.0, 0.8, halfTime = true)
+                Mood.RUNNING_170 -> FillTarget(170.0, 0.8, halfTime = true)
+                Mood.FEELING_GOOD -> FillTarget(118.0, 0.7, 0.85)
+                Mood.SURPRISE_ME -> FillTarget()
+            }
+            is MoodChoice.Custom -> with(choice.mood) {
+                FillTarget(
+                    tempo = tempo.midpoint.takeIf { tempo.isEnabled },
+                    energy = energy.midpoint.takeIf { energy.isEnabled },
+                    valence = valence.midpoint.takeIf { valence.isEnabled },
+                    halfTime = countHalfTime,
+                )
+            }
+        }
+
+        /** 0 for a perfect match; each unknown value counts as a middling miss. */
+        internal fun fillDistance(c: CandidateTrack, target: FillTarget): Double {
+            val f = c.features ?: return Double.MAX_VALUE
+            var distance = 0.0
+            target.tempo?.let { goal ->
+                val deviation = if (target.halfTime) cadenceDeviation(f.tempo, goal) else f.tempo?.let { abs(it - goal) }
+                distance += deviation?.let { it / 40 } ?: 0.5
+            }
+            target.energy?.let { goal -> distance += f.energy?.let { abs(it - goal) } ?: 0.5 }
+            target.valence?.let { goal -> distance += f.valence?.let { abs(it - goal) } ?: 0.5 }
+            return distance
+        }
+
         /** 1 at the middle of the range, falling to 0 at its edges. */
         internal fun closeness(value: Double, range: CustomMood.Range): Double {
             if (range.halfWidth <= 0) return 1.0

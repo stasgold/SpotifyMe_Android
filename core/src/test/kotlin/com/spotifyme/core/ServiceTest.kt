@@ -99,6 +99,45 @@ class ServiceTest {
     }
 
     @Test
+    fun shortPlaylistIsFilledWithRecommendations() = runTest {
+        // Only 5 of the user's tracks fit Running 180; recommendations fill the rest of the 30.
+        val mine = (1..5).map { spotifyTrack("t$it", "artist$it") }
+        val recs = (1..40).joinToString(",") {
+            """{"trackTitle":"Rec $it","artists":[{"name":"Rec Artist $it","href":"https://open.spotify.com/artist/ra$it"}],"href":"https://open.spotify.com/track/rec$it","durationMs":200000}"""
+        }
+        var recommendationCalls = 0
+        val transport = FakeTransport { req ->
+            val url = req.url
+            when {
+                url.contains("/me/top/tracks") -> ok("""{"items":[${mine.joinToString(",")}]}""")
+                url.contains("api.spotify.com") -> ok("""{"items":[]}""")
+                url.contains("/audio-features") -> {
+                    val ids = Regex("ids=([^&]*)").find(url)!!.groupValues[1].replace("%2C", ",").split(",")
+                    val content = ids.joinToString(",") {
+                        val tempo = if (it.startsWith("rec")) 150.0 else 180.0 // recommendations miss the running window
+                        """{"href":"https://open.spotify.com/track/$it","tempo":$tempo,"energy":0.8,"valence":0.5}"""
+                    }
+                    ok("""{"content":[$content]}""")
+                }
+                url.contains("/track/recommendation") -> {
+                    recommendationCalls++
+                    ok("""{"content":[$recs]}""")
+                }
+                else -> HttpResponse(404, emptyMap(), "not found: $url")
+            }
+        }
+        val http = HttpClient(transport)
+        val service = PlaylistService(SpotifyApi({ "token" }, http), ReccoBeatsApi(http), bpmFallbacks = emptyList(), cache = FeatureCache(null))
+
+        val result = service.generate(Mood.RUNNING_180)
+        assertEquals(30, result.size)
+        assertEquals(5, result.count { it.id.startsWith("t") })
+        // One call while reading history, at least one more aimed at the mood (tempo=180).
+        assertTrue(recommendationCalls >= 2)
+        assertTrue(transport.requests.any { it.url.contains("/track/recommendation") && it.url.contains("tempo=180") })
+    }
+
+    @Test
     fun featureCachePersistsAndRemembersMisses() = runTest {
         val file = File.createTempFile("features", ".json").apply { delete() }
         try {

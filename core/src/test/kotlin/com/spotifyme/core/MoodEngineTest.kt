@@ -239,6 +239,58 @@ class MoodEngineTest {
 
     // endregion
 
+    // region Filling short playlists with recommendations
+
+    private val rec = setOf(TrackOrigin.RECOMMENDATION)
+
+    @Test
+    fun fillTopsUpWithClosestRecommendations() {
+        val small = MoodEngine(MoodEngine.Options(targetCount = 4, maxPerArtist = 2, jitter = 0.0))
+        val pool = listOf(
+            track("a", tempo = 180.0, energy = 0.8),
+            track("b", tempo = 90.0, energy = 0.9),
+            track("near", tempo = 178.0, energy = 0.5, origins = rec),  // fails the energy rule, but close
+            track("half", tempo = 90.0, energy = 0.4, origins = rec),   // half-time, calm
+            track("far", tempo = 120.0, energy = 0.8, origins = rec),
+            track("unknown", origins = rec),                            // no audio data
+            track("mine", tempo = 120.0, energy = 0.9),                 // own track that doesn't match: never a filler
+        )
+        assertEquals(setOf("a", "b"), small.playlist(Mood.RUNNING_180, pool, random).map { it.id }.toSet())
+        assertEquals(
+            setOf("a", "b", "near", "half"),
+            small.playlist(Mood.RUNNING_180, pool, random, fill = true).map { it.id }.toSet(),
+        )
+    }
+
+    @Test
+    fun fillReachesTargetAndKeepsArtistCap() {
+        val pool = listOf(track("calm", tempo = 70.0, energy = 0.2)) +
+            (1..40).map { track("r$it", artist = "Artist ${it % 10}", tempo = 120.0, energy = 0.7, origins = rec) }
+        val result = engine.playlist(Mood.SLOW_DOWN, pool, random, fill = true)
+        assertEquals(21, result.size) // 1 match + 10 artists × 2 recommended tracks
+        assertTrue(result.groupingBy { it.track.primaryArtist }.eachCount().values.all { it <= 2 })
+        // Still ordered by the mood's rule: highest energy first, calmest last.
+        assertEquals("calm", result.last().id)
+    }
+
+    @Test
+    fun customMoodFillsOnlyWhenNewMusicIsAllowed() {
+        val base = CustomMood(
+            tempo = range(100.0, 110.0, on = true), energy = range(0.0, 1.0), valence = range(0.0, 1.0),
+            danceability = range(0.0, 1.0), acousticness = range(0.0, 1.0), targetCount = 3,
+        )
+        val pool = listOf(
+            track("match", tempo = 105.0, energy = 0.5),
+            track("r1", tempo = 130.0, energy = 0.5, origins = rec),
+            track("r2", tempo = 140.0, energy = 0.5, origins = rec),
+        )
+        assertEquals(3, engine.playlist(base, pool, random, fill = true).size)
+        val noNewMusic = base.copy(sources = setOf(CustomMood.Source.TOP_TRACKS, CustomMood.Source.LIKED))
+        assertEquals(listOf("match"), engine.playlist(noNewMusic, pool, random, fill = true).map { it.id })
+    }
+
+    // endregion
+
     @Test
     fun getSongBpmNoResultShape() {
         assertNull(GetSongBpmApi.parseResults("""{"search":{"error":"no result"}}"""))

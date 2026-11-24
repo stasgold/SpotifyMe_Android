@@ -211,7 +211,11 @@ fun MoodEditorScreen(container: AppContainer, moodId: String?, onDone: (deleted:
                 SwitchRow("Avoid same artist back to back", checked = mood.spreadArtists) { mood = mood.copy(spreadArtists = it) }
             }
             if (CustomMood.Source.NEW_MUSIC in mood.sources) {
-                SwitchRow("Add recommendations if too few match", checked = mood.addRecommendationsWhenShort) {
+                SwitchRow(
+                    "Fill up with recommendations",
+                    subtitle = "When too few of your tracks match, add recommended tracks to reach ${mood.targetCount}",
+                    checked = mood.addRecommendationsWhenShort,
+                ) {
                     mood = mood.copy(addRecommendationsWhenShort = it)
                 }
             }

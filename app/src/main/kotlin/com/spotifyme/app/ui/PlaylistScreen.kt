@@ -46,6 +46,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.spotifyme.core.model.CandidateTrack
 import com.spotifyme.core.model.CustomMood
 import com.spotifyme.core.model.MoodChoice
+import com.spotifyme.core.model.TrackOrigin
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -160,7 +161,15 @@ private fun SaveBar(state: PlaylistUiState, onSave: () -> Unit) {
 private fun TrackRow(candidate: CandidateTrack) {
     ListItem(
         headlineContent = { Text(candidate.track.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        supportingContent = { Text(candidate.track.artistLine, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        supportingContent = {
+            // Tracks found only through recommendations (not from your own listening) are marked.
+            val recommended = candidate.origins == setOf(TrackOrigin.RECOMMENDATION)
+            Text(
+                if (recommended) "${candidate.track.artistLine} · Recommended" else candidate.track.artistLine,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
         trailingContent = candidate.features?.tempo?.let { tempo ->
             {
                 Text(

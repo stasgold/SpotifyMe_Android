@@ -11,7 +11,7 @@ The Android port of [SpotifyMe for iOS](https://github.com/stasgold/SpotifyMe). 
 | **Feeling Good** | Positivity (valence) ≥ 0.65, energy 0.5–0.85, danceability ≥ 0.6 | No artist twice in a row |
 | **Surprise Me** | ~40% "forgotten favorites" (all-time top tracks you haven't played lately) + ~60% new recommendations | Shuffled |
 
-Each playlist has about 30 tracks, with at most 2 per artist. For a running mood, if there aren't enough tracks at ±5 BPM, the window widens to ±8 BPM. If a mood still has fewer than 20 tracks, the app adds recommendations aimed at that mood's tempo and energy. Saving a mood again **updates the same playlist** rather than creating a duplicate.
+Each playlist has about 30 tracks, with at most 2 per artist. For a running mood, if there aren't enough tracks at ±5 BPM, the window widens to ±8 BPM. If a mood has fewer tracks than its full count, the app fetches recommendations aimed at that mood's tempo and energy (seeded by your own tracks), and if it's still short, fills the remaining slots with the recommended tracks closest to the mood. Recommended tracks are marked "Recommended" in the list. (Spotify's own recommendations API is closed to new apps, so these come from ReccoBeats, which returns Spotify tracks.) Saving a mood again **updates the same playlist** rather than creating a duplicate.
 
 ### Custom moods
 
@@ -20,7 +20,7 @@ Tap **New mood** at the end of the grid to make your own mood and set every rule
 - **Tempo**: a BPM range, optionally counting half-time tempo (e.g. 90 BPM for 180), as runners do.
 - **Sound**: ranges for energy, positivity, danceability and acousticness. Only the filters you turn on are applied, and tracks closest to the middle of each range rank highest.
 - **Pick tracks from**: your top tracks, recently played, Liked Songs, more from your top artists, new recommendations.
-- **Playlist**: number of tracks, max per artist, order (best match, shuffled, energy or tempo rising/falling, gentle start and finish), avoiding the same artist back to back, and adding recommendations when too few tracks match.
+- **Playlist**: number of tracks, max per artist, order (best match, shuffled, energy or tempo rising/falling, gentle start and finish), avoiding the same artist back to back, and filling up with recommendations when too few tracks match (needs "New recommendations" as a source).
 
 Long-press a custom mood to edit or delete it, or tap **Edit** on its playlist screen.
 
