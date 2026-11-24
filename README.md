@@ -41,7 +41,7 @@ Spotify (your history) ──► track pool ──► audio features ──► m
   ReccoBeats recommendations
 ```
 
-Spotify no longer gives new apps tempo/mood data (audio features) or recommendations. Those were removed in November 2024, so this app gets them from the free services above. Results are cached on the device (`files/SpotifyMe/features.json`), so each track is only looked up once.
+Spotify no longer gives new apps tempo/mood data (audio features) or recommendations. Those were removed in November 2024, so this app gets them from the free services above (BPM data by [GetSongBPM.com](https://getsongbpm.com)). Results are cached on the device (`files/SpotifyMe/features.json`), so each track is only looked up once.
 
 ### Project layout
 
@@ -118,5 +118,5 @@ and compare the request body in `SpotifyApi.replacePlaylistItems` (`{"uris": [..
 ## Third-party data terms
 
 - **ReccoBeats**: free, no key, rate-limited. The app waits and retries automatically.
-- **GetSongBPM**: free, but a visible link back to GetSongBPM.com is **required**. It's on the About screen.
+- **GetSongBPM**: free, but a visible link back to GetSongBPM.com is **required**. It's on the About screen and here: BPM data by [GetSongBPM.com](https://getsongbpm.com).
 - **Deezer**: free public catalog lookups. A BPM of 0 means "unknown" and is ignored.
