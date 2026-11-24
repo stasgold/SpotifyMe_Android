@@ -1,0 +1,14 @@
+# Secrets / local config (SPOTIFY_CLIENT_ID etc. live in local.properties)
+local.properties
+keystore.properties
+*.keystore
+*.jks
+
+# Gradle / Android Studio
+.gradle/
+.kotlin/
+build/
+captures/
+.idea/
+*.iml
+.DS_Store

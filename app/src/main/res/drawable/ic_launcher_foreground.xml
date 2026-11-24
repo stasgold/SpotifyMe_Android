@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The nine waveform bars of the iOS app icon, placed inside the adaptive-icon safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="4.57"
+        android:strokeLineCap="round"
+        android:pathData="M28.16,48.55L28.16,59.52M34.63,42.22L34.63,65.85M41.10,35.19L41.10,72.88M47.57,29.57L47.57,78.50M54.04,38.00L54.04,70.07M60.50,44.33L60.50,63.74M66.97,33.79L66.97,74.29M73.44,40.11L73.44,67.96M79.91,47.14L79.91,60.93" />
+</vector>
