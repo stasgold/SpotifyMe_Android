@@ -34,6 +34,14 @@ android {
     }
 
     signingConfigs {
+        // A committed debug key (standard "android" passwords, not secret) so a debug APK built
+        // on any machine or in CI can update one already installed from another source.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         // Release builds are signed when a keystore is configured: locally from keystore.properties
         // (git-ignored), in CI from environment variables. Otherwise the release APK is unsigned.
         val keystoreProps = Properties().apply {

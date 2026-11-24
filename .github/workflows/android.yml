@@ -10,10 +10,16 @@ concurrency:
   group: android-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write # publish the APK as a GitHub Release
+
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Only APKs that can actually sign in to Spotify are published.
+      HAS_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -46,11 +52,33 @@ jobs:
             export ANDROID_KEY_PASSWORD="${{ secrets.ANDROID_KEY_PASSWORD }}"
           fi
           ./gradlew :app:assembleDebug :app:assembleRelease --console=plain
+          cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/SpotifyMe.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: SpotifyMe-android-${{ github.run_number }}
           path: app/build/outputs/apk/**/*.apk
+
+      - name: Warn when the Client ID secret is missing
+        if: env.HAS_CLIENT_ID != 'true'
+        run: echo "::warning::SPOTIFY_CLIENT_ID secret is not set, so the APK cannot sign in and no release is published."
+
+      # Every push to main becomes the latest GitHub Release, so
+      # https://github.com/<owner>/<repo>/releases/latest/download/SpotifyMe.apk always gets the newest build.
+      - name: Publish GitHub Release (sideload APK)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.HAS_CLIENT_ID == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: SpotifyMe for Android, build ${{ github.run_number }}
+          make_latest: "true"
+          files: app/build/outputs/apk/debug/SpotifyMe.apk
+          body: |
+            **Install:** open this page on your Android phone, tap `SpotifyMe.apk`, then open the download.
+            Allow "Install unknown apps" for your browser when asked. Newer builds install over older ones.
+
+            Built from ${{ github.sha }}.
 
       - uses: actions/upload-artifact@v4
         if: failure()

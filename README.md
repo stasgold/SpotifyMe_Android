@@ -15,6 +15,10 @@ Each playlist has about 30 tracks, with at most 2 per artist. For a running mood
 
 The mood rules, data sources and behavior are the same as the iOS app; only the UI layer is Android-specific.
 
+## 📲 Install on your phone (sideload)
+
+**[Download SpotifyMe.apk (latest build)](https://github.com/stasgold/SpotifyMe_Android/releases/latest/download/SpotifyMe.apk)**: open this link on your Android phone, open the downloaded file, and allow "Install unknown apps" for your browser when asked. Newer builds install over older ones. Your Spotify account must be added under **User Management** in the Spotify dashboard (see [Setup](#setup)).
+
 ## How it works
 
 ```
@@ -80,7 +84,9 @@ Run the unit tests with `./gradlew test`.
 
 To get a signed release APK, add these secrets too: `ANDROID_KEYSTORE_BASE64` (your keystore, base64-encoded), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Locally, put `storeFile`, `storePassword`, `keyAlias` and `keyPassword` in a git-ignored `keystore.properties`.
 
-The APKs are attached to each workflow run under **Artifacts**. To install one on your phone, download the debug APK, open it, and allow "Install unknown apps" for your browser or file manager when asked.
+When `SPOTIFY_CLIENT_ID` is set, every push to `main` also publishes the debug APK as the latest GitHub Release (`SpotifyMe.apk`), which is what the download link above points to. The APKs are attached to each workflow run under **Artifacts** too.
+
+Debug builds are signed with the committed `app/debug.keystore` (standard `android` passwords, not a secret), so an APK built on any machine or in CI installs over another.
 
 ## Spotify limits to know about
 

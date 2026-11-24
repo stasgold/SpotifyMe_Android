@@ -12,3 +12,4 @@ captures/
 .idea/
 *.iml
 .DS_Store
+!app/debug.keystore
